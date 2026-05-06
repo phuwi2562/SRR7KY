@@ -23,6 +23,7 @@ const els = {
   villageFilter: document.querySelector("#villageFilter"),
   activeRange: document.querySelector("#activeRange"),
   topVillages: document.querySelector("#topVillages"),
+  topVhvs: document.querySelector("#topVhvs"),
   villageRows: document.querySelector("#villageRows"),
   registrySubtitle: document.querySelector("#registrySubtitle"),
   registryCount: document.querySelector("#registryCount"),
@@ -258,6 +259,46 @@ function updateLeaderboard(byVillage) {
         <div class="leader-percent">${item.percent.toFixed(1)}%</div>
         <div class="leader-meta">คัดกรอง ${fmt(item.screened)} จาก ${fmt(item.target)} คน | เหลือ ${fmt(item.unscreened)} คน</div>
       </article>`;
+    })
+    .join("");
+}
+
+function updateVhvLeaderboard(screenedList) {
+  const byWorker = new Map();
+  for (const record of screenedList) {
+    const worker = workerName(record).trim();
+    if (!worker) continue;
+    if (!byWorker.has(worker)) {
+      byWorker.set(worker, { worker, count: 0, villages: new Set() });
+    }
+    const item = byWorker.get(worker);
+    item.count += 1;
+    if (record.village) item.villages.add(record.village);
+  }
+
+  const leaders = Array.from(byWorker.values())
+    .sort((a, b) => b.count - a.count || a.worker.localeCompare(b.worker, "th"))
+    .slice(0, 10);
+
+  if (!leaders.length) {
+    els.topVhvs.innerHTML = `<tr><td class="empty-row" colspan="5">ไม่พบข้อมูล อสม. ในเงื่อนไขนี้</td></tr>`;
+    return;
+  }
+
+  els.topVhvs.innerHTML = leaders
+    .map((item, index) => {
+      const villagesText = Array.from(item.villages)
+        .sort((a, b) => Number(a) - Number(b))
+        .map((v) => `หมู่ ${v}`)
+        .join(", ");
+      const stars = index < 3 ? "★".repeat(3 - index) : "";
+      return `<tr>
+        <td><span class="rank-badge">${index + 1}</span></td>
+        <td>${escapeHtml(item.worker)}</td>
+        <td>${escapeHtml(villagesText || "-")}</td>
+        <td>${fmt(item.count)}</td>
+        <td><span class="award-stars">${stars || "-"}</span></td>
+      </tr>`;
     })
     .join("");
 }
@@ -607,6 +648,7 @@ function render() {
   updateKpis(total);
   updateTable(byVillage);
   updateLeaderboard(byVillage);
+  updateVhvLeaderboard(screenedList);
   updateCharts(screenedList, byVillage, total);
   updateRegistry(screenedList);
   els.activeRange.textContent = dateLabel(start, end, name);

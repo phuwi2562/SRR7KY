@@ -354,6 +354,41 @@ input:focus {
   font-size: 0.9rem;
 }
 
+.vhv-leaderboard {
+  background:
+    linear-gradient(135deg, rgba(8, 168, 199, 0.1), rgba(33, 201, 138, 0.08)),
+    rgba(255, 255, 255, 0.92);
+}
+
+.compact-table table {
+  min-width: 720px;
+}
+
+.compact-table th:nth-child(2),
+.compact-table td:nth-child(2),
+.compact-table th:nth-child(3),
+.compact-table td:nth-child(3) {
+  text-align: left;
+}
+
+.rank-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 38px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(17, 117, 83, 0.1);
+  color: var(--green);
+  font-weight: 900;
+}
+
+.award-stars {
+  color: #e5a800;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
 .import-panel {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
