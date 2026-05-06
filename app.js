@@ -29,6 +29,22 @@ const els = {
   registryCount: document.querySelector("#registryCount"),
   registryRows: document.querySelector("#registryRows"),
   registryTabs: document.querySelectorAll(".registry-tab"),
+  personDialog: document.querySelector("#personDialog"),
+  personDialogTitle: document.querySelector("#personDialogTitle"),
+  personDialogMeta: document.querySelector("#personDialogMeta"),
+  personBp: document.querySelector("#personBp"),
+  personBpStatus: document.querySelector("#personBpStatus"),
+  personDtx: document.querySelector("#personDtx"),
+  personDtxStatus: document.querySelector("#personDtxStatus"),
+  personBmi: document.querySelector("#personBmi"),
+  personBmiStatus: document.querySelector("#personBmiStatus"),
+  personCvd: document.querySelector("#personCvd"),
+  personHistoryRows: document.querySelector("#personHistoryRows"),
+  measureDate: document.querySelector("#measureDate"),
+  measureWeight: document.querySelector("#measureWeight"),
+  measureHeight: document.querySelector("#measureHeight"),
+  saveMeasure: document.querySelector("#saveMeasure"),
+  measureMessage: document.querySelector("#measureMessage"),
   registryLogin: document.querySelector("#registryLogin"),
   registryLoginForm: document.querySelector("#registryLoginForm"),
   registryUsername: document.querySelector("#registryUsername"),
@@ -46,6 +62,8 @@ const REGISTRY_AUTH = { username: "admin", password: "srr7@2569" };
 let charts = {};
 let activeRegistry = "htRisk";
 let registryUnlocked = sessionStorage.getItem("srr7-registry-auth") === "ok";
+let selectedPersonKey = "";
+let personCharts = {};
 
 Chart.defaults.font.family = '"Noto Sans Thai", "Segoe UI", Tahoma, sans-serif';
 Chart.defaults.color = "#52615a";
@@ -55,6 +73,10 @@ Chart.defaults.plugins.tooltip.cornerRadius = 10;
 
 function fmt(n) {
   return Number(n || 0).toLocaleString("th-TH");
+}
+
+function fmtDecimal(n, digits = 1) {
+  return Number.isFinite(Number(n)) ? Number(n).toLocaleString("th-TH", { minimumFractionDigits: digits, maximumFractionDigits: digits }) : "-";
 }
 
 function number(value) {
@@ -77,6 +99,14 @@ function cleanName(value) {
 
 function personKey(record) {
   return [cleanName(record.name), village(record.village), String(record.houseNo || "").replace(/,/g, "").trim()].join("|");
+}
+
+function keyToId(key) {
+  return btoa(unescape(encodeURIComponent(key))).replace(/=+$/g, "");
+}
+
+function idToKey(id) {
+  return decodeURIComponent(escape(atob(id)));
 }
 
 function parseThaiDateText(value) {
@@ -426,7 +456,7 @@ function updateRegistry(screenedList) {
   els.registrySubtitle.textContent = `${info.title} | ${villageText} | ${info.note}`;
   els.registryCount.textContent = `${fmt(items.length)} ราย`;
   if (!items.length) {
-    els.registryRows.innerHTML = `<tr><td class="empty-row" colspan="10">ไม่พบรายชื่อในเงื่อนไขนี้</td></tr>`;
+    els.registryRows.innerHTML = `<tr><td class="empty-row" colspan="11">ไม่พบรายชื่อในเงื่อนไขนี้</td></tr>`;
     return;
   }
   els.registryRows.innerHTML = items
@@ -434,6 +464,7 @@ function updateRegistry(screenedList) {
       const bp = record.sbp != null || record.dbp != null ? `${record.sbp ?? "-"} / ${record.dbp ?? "-"}` : "-";
       const dtx = record.dtx != null ? fmt(record.dtx) : "-";
       const worker = workerName(record) || "-";
+      const personId = keyToId(personKey(record));
       return `<tr>
         <td>${fmt(index + 1)}</td>
         <td>${escapeHtml(record.name || "-")}</td>
@@ -445,6 +476,7 @@ function updateRegistry(screenedList) {
         <td>${dtx}</td>
         <td>${escapeHtml(record.screenedDateText || "-")}</td>
         <td>${escapeHtml(registryRemark(record))}</td>
+        <td><button class="inline-action person-open" type="button" data-person="${personId}">ดู/บันทึก</button></td>
       </tr>`;
     })
     .join("");
@@ -535,6 +567,183 @@ function updateRegistryLockState() {
   els.registryLogin.classList.toggle("unlocked", registryUnlocked);
   els.registryContent.classList.toggle("locked", !registryUnlocked);
   els.registryActions.classList.toggle("locked", !registryUnlocked);
+}
+
+function measureStore() {
+  try {
+    return JSON.parse(localStorage.getItem("srr7-person-measures") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveMeasureStore(store) {
+  localStorage.setItem("srr7-person-measures", JSON.stringify(store));
+}
+
+function personMeasures(key) {
+  return (measureStore()[key] || []).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+
+function findPerson(key) {
+  return records.find((record) => personKey(record) === key) || unscreened.find((record) => personKey(record) === key) || population.find((record) => personKey(record) === key);
+}
+
+function bmiFromMeasure(measure) {
+  const weight = Number(measure.weight);
+  const heightM = Number(measure.height) / 100;
+  return weight && heightM ? weight / (heightM * heightM) : null;
+}
+
+function bmiStatus(bmi) {
+  if (!Number.isFinite(Number(bmi))) return "-";
+  if (bmi >= 25) return "เสี่ยง";
+  if (bmi >= 18.5) return "ปกติ";
+  return "ต่ำกว่าเกณฑ์";
+}
+
+function bpStatus(record) {
+  if (record?.sbp == null && record?.dbp == null) return "-";
+  return (record.sbp ?? 0) >= 140 || (record.dbp ?? 0) >= 90 ? "เสี่ยง" : "ปกติ";
+}
+
+function dtxStatus(record) {
+  if (record?.dtx == null) return "-";
+  return record.dtx >= 126 ? "เสี่ยง" : record.dtx >= 100 ? "เฝ้าระวัง" : "ปกติ";
+}
+
+function thaiTodayIso() {
+  return iso(todayBangkok());
+}
+
+function latestMeasure(key) {
+  const list = personMeasures(key);
+  return list[list.length - 1] || null;
+}
+
+function historyRows(person, key) {
+  const rows = [];
+  const measures = personMeasures(key);
+  for (const measure of measures) {
+    const bmi = bmiFromMeasure(measure);
+    rows.push({
+      date: measure.date,
+      weight: measure.weight,
+      height: measure.height,
+      bmi,
+      bp: "-",
+      dtx: "-",
+      smoking: "-",
+      alcohol: "-",
+    });
+  }
+  if (person?.screenedDate || person?.screenedDateText) {
+    rows.push({
+      date: person.screenedDate || person.screenedDateText,
+      weight: "-",
+      height: "-",
+      bmi: person.bmi,
+      bp: person.sbp != null || person.dbp != null ? `${person.sbp ?? "-"} / ${person.dbp ?? "-"}` : "-",
+      dtx: person.dtx ?? "-",
+      smoking: person.smoking || "-",
+      alcohol: person.alcohol || "-",
+    });
+  }
+  return rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+function renderPersonCharts(person, key) {
+  for (const chart of Object.values(personCharts)) chart.destroy();
+  personCharts = {};
+  const rows = historyRows(person, key).slice().reverse();
+  const labels = rows.map((row) => row.date);
+  personCharts.bp = new Chart(document.querySelector("#personBpChart"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label: "SBP", data: rows.map((row) => (typeof row.bp === "string" && row.bp.includes("/") ? Number(row.bp.split("/")[0]) : null)), borderColor: colors.ht, tension: 0.35 },
+        { label: "DBP", data: rows.map((row) => (typeof row.bp === "string" && row.bp.includes("/") ? Number(row.bp.split("/")[1]) : null)), borderColor: "#e0527f", tension: 0.35 },
+      ],
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: false } } },
+  });
+  personCharts.metabolic = new Chart(document.querySelector("#personMetabolicChart"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label: "DTX", data: rows.map((row) => Number(row.dtx) || null), borderColor: colors.screened, tension: 0.35 },
+        { label: "BMI", data: rows.map((row) => Number(row.bmi) || null), borderColor: colors.risk, tension: 0.35 },
+      ],
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: false } } },
+  });
+}
+
+function openPersonDialog(key) {
+  if (!registryUnlocked) return;
+  const person = findPerson(key);
+  if (!person) return;
+  selectedPersonKey = key;
+  const measure = latestMeasure(key);
+  const latestBmi = measure ? bmiFromMeasure(measure) : person.bmi;
+  els.personDialogTitle.textContent = `${person.name || "-"} (${person.sex || "-"}, cid: -)`;
+  els.personDialogMeta.textContent = `บ้านเลขที่ ${person.houseNo || "-"} | หมู่ ${person.village || "-"} | ${workerName(person) || "ไม่ระบุ อสม./ผู้บันทึก"}`;
+  els.personBp.textContent = person.sbp != null || person.dbp != null ? `${person.sbp ?? "-"} / ${person.dbp ?? "-"}` : "-";
+  els.personBpStatus.textContent = bpStatus(person);
+  els.personDtx.textContent = person.dtx != null ? fmt(person.dtx) : "-";
+  els.personDtxStatus.textContent = dtxStatus(person);
+  els.personBmi.textContent = latestBmi ? fmtDecimal(latestBmi, 2) : "-";
+  els.personBmiStatus.textContent = bmiStatus(latestBmi);
+  els.personCvd.textContent = "0.00%";
+  els.measureDate.value = thaiTodayIso();
+  els.measureWeight.value = "";
+  els.measureHeight.value = "";
+  els.measureMessage.textContent = "";
+  renderPersonHistory(person, key);
+  if (!els.personDialog.open) els.personDialog.showModal();
+  setTimeout(() => renderPersonCharts(person, key), 0);
+}
+
+function renderPersonHistory(person, key) {
+  const rows = historyRows(person, key);
+  if (!rows.length) {
+    els.personHistoryRows.innerHTML = `<tr><td class="empty-row" colspan="8">ยังไม่มีประวัติ</td></tr>`;
+    return;
+  }
+  els.personHistoryRows.innerHTML = rows
+    .map((row) => `<tr>
+      <td>${escapeHtml(row.date || "-")}</td>
+      <td>${row.weight === "-" ? "-" : fmtDecimal(row.weight, 1)}</td>
+      <td>${row.height === "-" ? "-" : fmtDecimal(row.height, 1)}</td>
+      <td>${row.bmi ? fmtDecimal(row.bmi, 2) : "-"}</td>
+      <td>${escapeHtml(row.bp || "-")}</td>
+      <td>${escapeHtml(row.dtx || "-")}</td>
+      <td>${escapeHtml(row.smoking || "-")}</td>
+      <td>${escapeHtml(row.alcohol || "-")}</td>
+    </tr>`)
+    .join("");
+}
+
+function saveCurrentMeasure() {
+  if (!selectedPersonKey) return;
+  const weight = Number(els.measureWeight.value);
+  const height = Number(els.measureHeight.value);
+  const date = els.measureDate.value;
+  if (!date || !weight || !height) {
+    els.measureMessage.textContent = "กรุณากรอกวันที่ น้ำหนัก และส่วนสูง";
+    return;
+  }
+  const store = measureStore();
+  store[selectedPersonKey] = store[selectedPersonKey] || [];
+  const existingIndex = store[selectedPersonKey].findIndex((item) => item.date === date);
+  const entry = { date, weight, height, savedAt: new Date().toISOString() };
+  if (existingIndex >= 0) store[selectedPersonKey][existingIndex] = entry;
+  else store[selectedPersonKey].push(entry);
+  saveMeasureStore(store);
+  openPersonDialog(selectedPersonKey);
+  els.measureMessage.textContent = "บันทึกสำเร็จ";
 }
 
 function chart(id, type, data, options = {}) {
@@ -685,6 +894,16 @@ els.clearRegistryFilters.addEventListener("click", () => {
   els.registryAddressFilter.value = "";
   els.registryVolunteerFilter.value = "all";
   render();
+});
+els.registryRows.addEventListener("click", (event) => {
+  const button = event.target.closest(".person-open");
+  if (!button) return;
+  openPersonDialog(idToKey(button.dataset.person));
+});
+els.saveMeasure.addEventListener("click", saveCurrentMeasure);
+els.personDialog.addEventListener("close", () => {
+  for (const chart of Object.values(personCharts)) chart.destroy();
+  personCharts = {};
 });
 els.registryTabs.forEach((tab) => {
   tab.addEventListener("click", () => {
